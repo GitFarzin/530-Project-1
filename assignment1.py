@@ -2,7 +2,7 @@ import math
 
 # read in configuration file, 
 
-def read_config(filename="trace.config"):
+def read_config(filename="trace copy.config"):
     ## read in config
    
     
@@ -155,7 +155,10 @@ def printvars(configurationvariables):
 #### step 2
 def step2(config, trace_filename="trace.dat"):
 
-
+    # Check configuration flags
+    virtmemoryon = config['virtaddress'].lower() == 'y'
+    tlbon = config['TLB'].lower() == 'y'
+    l2enabled = config['l2setting'].lower() == 'y'
 
     print("Virtual  Virt. Page TLB  TLB  TLB  PT   Phys DC   DC   L2   L2")
     print("Address  Page # Off  Tag  Ind  Res. Res. Pg # DC Tag Ind  Res. L2 Tag Ind  Res.")
@@ -168,11 +171,11 @@ def step2(config, trace_filename="trace.dat"):
 
 
 
-    # compute  sizes in powers of two
+
+    # compute sizes in powers of two
     pagebytes  = 1 << pageoffsetbits   # bytes per page
     linebytes  = 1 << dcoffsetbits     # bytes per DC line
     numsets    = 1 << dcindexbits      # number of DC sets (not bytes)
-
 
 
 
@@ -182,31 +185,122 @@ def step2(config, trace_filename="trace.dat"):
             line = line.strip()
             if not line:
                 continue
+
             
             try:
+
+
+                # get the addresses 
                 _, hexaddr = line.split(':')  # split up r/w and hex address
-                address = int(hexaddr, 16)  # cnvert to int
+                address = int(hexaddr, 16)  # convert to int
 
                 pageoffset = address % pagebytes  #get page offset
-                physpagenumber = address // pagebytes # get page number
+                pagenumber = address // pagebytes # get page number can be virtual or physical!!
+
 
                 blocknumber = address // linebytes  # get block num
                 dc_index = blocknumber % numsets # calc data cache index
-                dc_tag = blocknumber // numsets # cacl data cache tag
+                dc_tag = blocknumber // numsets # calc data cache tag
 
 
-     
-                print(f"{address:08x} {physpagenumber:6x} {pageoffset:4x} {'':>6} {'':>3} {'':>4} {'':>4} {physpagenumber:4x} {dc_tag:6x} {dc_index:3x} {'':>4} {'':>6} {'':>3} {'':>4}")
+
+
+
+                # Initialize output fields based on what's enabled
+                virtpagenum = ""
+                tlbtagnum = ""
+                tlbindex   = ""
+                tlboutput  = ""
+                ptoutput   = ""
+                physpnum   = ""
+                l2tag      = ""
+                l2index    = ""
+                l2result   = ""
+
+                # Fill on enable
+                if virtmemoryon:
+                    virtpagenum = f"{pagenumber:6x}"
+                    physpnum    = f"{pagenumber:4x}"
+                    ptoutput    = "miss"
+                else:
+                    # Phys addresses 
+                    physpnum = f"{pagenumber:4x}"
+
+                if tlbon:
+                    tlbtagnum = f"{pagenumber >> config['tlbindex']:6x}"
+                    tlbindex  = f"{pagenumber % (1 << config['tlbindex']):3x}"
+                    tlboutput = "miss" 
+                if l2enabled:
+                    l2blocknum = address // (1 << config['l2cacheoffset'])
+                    l2index    = f"{l2blocknum % (1 << config['l2cacheindex']):3x}"
+                    l2tag      = f"{l2blocknum // (1 << config['l2cacheindex']):6x}"
+                    l2result   = "miss"  # Placeholder for now
+
+                # Print 
+                #print(f"{address:08x} {physpagenumber:6x} {pageoffset:4x} {'':>6} {'':>3} {'':>4} {'':>4} {physpagenumber:4x} {dc_tag:6x} {dc_index:3x} {'':>4} {'':>6} {'':>3} {'':>4}")
+
+                print(f"{address:08x} {virtpagenum:>6} {pageoffset:4x} {tlbtagnum:>6} {tlbindex:>3} {tlboutput:>4} {ptoutput:>4} {physpnum:>4} {dc_tag:6x} {dc_index:3x} {'':>4} {l2tag:>6} {l2index:>3} {l2result:>4}")
+
             except Exception as e:
                 print(f"Error processing line '{line}': {e}")
 
+            
+            
+            #print(f"{address:08x} {physpagenumber:6x} {pageoffset:4x} {'':>6} {'':>3} {'':>4} {'':>4} {physpagenumber:4x} {dc_tag:6x} {dc_index:3x} {'':>4} {'':>6} {'':>3} {'':>4}")
+            
+           
 
 
+               #print(f"{address:08x} {virt_page:>6} {pageoffset:4x} {tlb_tag:>6} {tlb_index:>3} " f"{tlb_result:>4} {pt_result:>4} {phys_page:>4} {dc_tag:6x} {dc_index:3x} " f"{'':>4} {l2tag:>6} {l2index:>3} {l2result:>4}")
 
+
+def alldatacache(address, acctype, datacache, config, statoutput):
+   #Use a direct-mapped organization (set size = 1) and assume all references are reads
+  #      $tracks hits and misses for each memory reference
+
+
+    dcoffsetbits = config['dcacheoffset']     # log2(bytes per cache line)
+    dcindexbits  = config['dcacheindex']      # log2(number of sets)
+
+    linebytes  = 1 << dcoffsetbits            # bytes per cache line
+    numsets    = 1 << dcindexbits             # total sets in cache
+
+
+    blocknumber = address // linebytes        # which block of memory we’re in
+    datacacheindx = blocknumber % numsets      # which cache set we go to
+    dc_tag       = blocknumber // numsets     # tag bits beyond index
+
+    
+    # if miss or empty/ init
+    if datacacheindx not in datacache:
+        datacache[datacacheindx] = None  # No line present initially
+
+     #check for hit
+    if datacache[datacacheindx] is not None:
+        tag, validbit = datacache[datacacheindx]  # unpack stored set index (tag, validbit) tuple  
+
+        # valid entry and matching tag  
+        if validbit and tag == dc_tag:
+            statoutput['dc_hits'] += 1  # hit
+            return {
+                'index': f"{datacacheindx:3x}",   
+                'tag':   f"{dc_tag:6x}",      
+                'result': 'hit'
+            }
+
+    statoutput['dc_misses'] += 1   # else miss - first read / mismatched tag
+    # Replace the old line with new tag (direct-mapped = always replace)
+    datacache[datacacheindx] = (dc_tag, True)  # Store (tag, validbit)
+
+    return {
+        'index': f"{datacacheindx:3x}",           
+        'tag':   f"{dc_tag:6x}",            
+        'result': 'miss'
+    }
 
 if __name__ == "__main__":
     # just change the file name 
-    configfile = "trace.config"
+    configfile = "trace copy.config"
     configurationvariables = read_config(configfile)
     configurationvariables = calcbits(configurationvariables)
     printvars(configurationvariables)
