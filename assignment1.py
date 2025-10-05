@@ -1,10 +1,21 @@
 import math
+import sys
 
-# read in configuration file
+
+
+def logfunct(n):  ## take log2 of each value 
+    
+    if n <= 0:
+        return 0
+    return int(math.log2(n))
+
 
 def parse(filename="trace.config"):
-    ## read in config
-   
+    ## function to read in the config file - I could have probably went about this in a smoother way
+    # currently it reads in the file, looks for the matching string, then strips the value after the colon. 
+    # Though the way i iterate to get the number of lines is probably glitchy if the config file changes
+    # I include power of 2 check, and make sure the values don't go outside of the max size described in the pdf
+    #I'm not sure if using a dict was the right approach but it made sense originally there was probably a better way
     
    # try:
         #print(f"check file: {filename}")
@@ -19,7 +30,7 @@ def parse(filename="trace.config"):
                 lines.append(stripline)     
                 #print(f" line {(stripline)}")
                 
-    configurationvariables = {}     # create dict will use later
+    configurationvariables = {}     # create dict 
 
     i = 0
     while i < len(lines):
@@ -28,7 +39,7 @@ def parse(filename="trace.config"):
         if "Data TLB configuration" in line:  # ensure in correct line then set dict var to be the value outside the : 
             configurationvariables['TLBsets'] = int(lines[i+1].split(':')[1].strip())  #DTLB sets  # looks at line below
             configurationvariables['TLBsetsize'] = int(lines[i+2].split(':')[1].strip())  #num sets  # looks at 2 lines below
-            i += 3  # go to next section
+            i += 3  # read through each line then ptconfig
 
         elif "Page Table configuration" in line:
             configurationvariables['ptvirtpages'] = int(lines[i+1].split(':')[1].strip())
@@ -63,13 +74,20 @@ def parse(filename="trace.config"):
             i += 1
 
     
-    def power2check(val):    # check if value is power of 2
-        return val > 0 and (val & (val - 1)) == 0
+    def power2check(val):  ## check ito make sure each value in config is a power of 2
+        if val <= 0:
+            return False
+        power = 1
+        while power < val:
+            power *= 2
+        return power == val
+
     
     # check max sizes and power of 2 requirements
     if configurationvariables['TLBsets'] > 256:
         print(f"Error: DTLB sets ({configurationvariables['TLBsets']}) exceeds max 256")
         return None
+   
     if not power2check(configurationvariables['TLBsets']):
         print(f"Error: DTLB sets ({configurationvariables['TLBsets']}) must be power of 2")
         return None
@@ -77,6 +95,7 @@ def parse(filename="trace.config"):
     if configurationvariables['Dcachesets'] > 8192:
         print(f"Error: DC sets ({configurationvariables['Dcachesets']}) exceeds max 8192")
         return None
+   
     if not power2check(configurationvariables['Dcachesets']):
         print(f"Error: DC sets ({configurationvariables['Dcachesets']}) must be power of 2")
         return None
@@ -93,46 +112,61 @@ def parse(filename="trace.config"):
     if configurationvariables['TLBsetsize'] > 8:
         print(f"Error: DTLB associativity ({configurationvariables['TLBsetsize']}) exceeds max 8")
         return None
+    
     if configurationvariables['Dcachesetsize'] > 8:
         print(f"Error: DC associativity ({configurationvariables['Dcachesetsize']}) exceeds max 8")
         return None
+    
     if configurationvariables['l2setsize'] > 8:
         print(f"Error: L2 associativity ({configurationvariables['l2setsize']}) exceeds max 8")
+        return None
+
+    # check virt pages max . power 2
+    if configurationvariables['ptvirtpages'] > 8192:
+        print(f"Error: Virtual pages ({configurationvariables['ptvirtpages']}) exceeds max 8192")
+        return None
+    if not power2check(configurationvariables['ptvirtpages']):
+        print(f"Error: Virtual pages ({configurationvariables['ptvirtpages']}) must be power of 2")
+        return None
+    
+    # check phys pages max
+    if configurationvariables['ptphyspages'] > 1024:
+        print(f"Error: Physical pages ({configurationvariables['ptphyspages']}) exceeds max 1024")
+        return None
+    
+    # check pg size power of 2
+    if not power2check(configurationvariables['ptpagesize']):
+        print(f"Error: Page size ({configurationvariables['ptpagesize']}) must be power of 2")
+        return None
+    
+    # check L2 line size >= DC line size
+    if configurationvariables['l2linesize'] < configurationvariables['Dcachelinesize']:
+        print(f"Error: L2 line size ({configurationvariables['l2linesize']}) must be >= DC line size ({configurationvariables['Dcachelinesize']})")
         return None
 
     return configurationvariables
 
 
-   ## except Exception as error:
-   ##  print(f"Error reading in file: {error}")
-    #return None
-    
 
-
-
-
-def logfunct(n):  ## take log2 of each value 
-    
-    if n <= 0:
-        return 0
-    return int(math.log2(n))
 
 
 def calcbits(configurationvariables):
-    #use to calc index and offset bitsd
- 
+    # calculated the index/ tag/ offset bits for ptable, dcache, and L2
+    
+  
+ #tlb index bits, 
     configurationvariables['tlbindex'] = logfunct(configurationvariables['TLBsets'])   # Take log2 of dtlb
     
-    # Do Ptable
+    # ptable index virt pages and offset bits
 
     configurationvariables['ptablebits'] = logfunct(configurationvariables['ptvirtpages'])
     configurationvariables['poffsetbits'] = logfunct(configurationvariables['ptpagesize'])
 
-    # Data cache
+    # dcache index and offset
     configurationvariables['dcacheindex'] = logfunct(configurationvariables['Dcachesets'])
     configurationvariables['dcacheoffset'] = logfunct(configurationvariables['Dcachelinesize'])
 
-        # L2 
+        #  #l2 index and offset
     configurationvariables['l2cacheindex'] = logfunct(configurationvariables['l2sets'])
     configurationvariables['l2cacheoffset'] = logfunct(configurationvariables['l2linesize'])
 
@@ -141,197 +175,187 @@ def calcbits(configurationvariables):
 
 
 #### redid 
-def memsimulation(config, trace_filename="trace.dat"):
+def memsimulation(config):
 
     # Check configuration flags
     virtmemoryon = config['virtaddress'].lower() == 'y'
     tlbon = config['TLB'].lower() == 'y'
     l2enabled = config['l2setting'].lower() == 'y'
 
-    # Initialize data structures for simulation
-    datacache = {}
-
-    l2cache = {}
     
-    pagetable = {}
+    datacache = {}  # Init dictionary/  key= cache set index, value= list with tag, validbit, dirtybit
+
+    l2cache = {} 
+    
+    pagetable = {}  #key = vpn/ value=phys pnum
     tlb = {}
     statoutput = {
-        'dc_hits': 0, 'dc_misses': 0, 'l2hits': 0, 'l2misses': 0,
-        'dtlb_hits': 0, 'dtlb_misses': 0,
-        'pt_hits': 0, 'pt_faults': 0,
-        'allreads': 0, 'allwrites': 0,
-        'page_table_refs': 0, 'disk_refs': 0, 'mainmemrefs': 0
+        'dc_hits': 0, 'dc_misses': 0, 'l2hits': 0, 'l2misses': 0, # caches
+
+        
+        'dtlb_hits': 0, 'dtlb_misses': 0, 'pt_hits': 0, 'pt_faults': 0, # address translations
+        
+        'allreads': 0, 'allwrites': 0, 'page_table_refs': 0, 'disk_refs': 0, 'mainmemrefs': 0 # acces/mem
     }
 
-    print("Virtual  Virt. Page TLB  TLB  TLB  PT   Phys DC   DC   L2   L2")
-    print("Address  Page # Off  Tag  Ind  Res. Res. Pg # DC Tag Ind  Res. L2 Tag Ind  Res.")
+    print("Virtual  Virt.  Page TLB    TLB TLB  PT   Phys        DC  DC          L2  L2")
+    print("Address  Page # Off  Tag    Ind Res. Res. Pg # DC Tag Ind Res. L2 Tag Ind Res.")
     print("-------- ------ ---- ------ --- ---- ---- ---- ------ --- ---- ------ --- ----")
 
-    #declaring new vars to avoid diction modifying
-    pageoffsetbits = config['poffsetbits']   # still ints
+    # may need to make output screen bigger or else it prints off
+
+
+   
+    pageoffsetbits = config['poffsetbits']   # init
     dcindexbits = config['dcacheindex'] 
     dcoffsetbits = config['dcacheoffset']
 
     # compute sizes in powers of two
-    pagebytes  = 1 << pageoffsetbits   # bytes per page
+    pagebytes  = 1 << pageoffsetbits   # x bytes per page
 
     #  These were  incorrect tag calculations
     # linebytes  = 1 << dcoffsetbits     # bytes per DC line
     # numsets    = 1 << dcindexbits      # number of DC sets (not bytes)
 
-    with open(trace_filename, 'r') as tf:  #get trace.dat
-        for line in tf:  #grab each trace
-            line = line.strip()
-            if not line:
-                continue
 
-            try:
-                # get the addresses 
-                acctype, hexaddr = line.split(':')  # split up r/w and hex address
-                address = int(hexaddr, 16)  # convert to int
+    # Read from stdin 
+    for line in sys.stdin: #grab each trace
+        line = line.strip()
+        if not line:
+            continue
+    
+        try:
+            # get the addresses 
+            acctype, hexaddr = line.split(':')  # split up r/w and hex address
+            address = int(hexaddr, 16)  # convert to int
 
-                # Update read/write statistics
-                if acctype == 'R':
-                    statoutput['allreads'] += 1
-                else:
-                    statoutput['allwrites'] += 1
+            # Update read/write statistics
+            if acctype == 'R':
+                statoutput['allreads'] += 1
+            else:
+                statoutput['allwrites'] += 1
 
-                pageoffset = address % pagebytes  #get page offset
-                pagenumber = address // pagebytes # get page number can be virtual or physical!!
+            pageoffset = address % pagebytes  #get page offset
+            pagenumber = address // pagebytes # get page number can be virtual or physical!!
 
-                #    incorrect tag calc
-                # blocknumber = address // linebytes  # get block num
-                # dc_index = blocknumber % numsets # calc data cache index
-                # dctag = blocknumber // numsets # calc data cache tag
-
-
-                    # Init output field
-                virtpagenum = ""
-                tlbtagnum = ""
-                tlbindex   = ""
-                tlboutput  = ""
-                
-                ptoutput   = ""
-                physpnum   = ""
-                
-                l2tag      = ""
-                l2index    = ""
-                l2result   = ""
-                dcresult   = ""
+            #    incorrect tag calc
+            # blocknumber = address // linebytes  # get block num
+            # dc_index = blocknumber % numsets # calc data cache index
+            # dctag = blocknumber // numsets # calc data cache tag
 
 
-                # Init isplay variables for correct tag/index  from cache functions
-                dctagprint= ""     
-                dcindexprint = ""       
-                
-                l2tagprint = ""      
-                l2indexprint = ""    
-
-                # check if virtual memory on
-                if virtmemoryon:
-                    if tlbon: # and tlb on
-                        
-                        result = tlbaccess(address, acctype, tlb, pagetable, datacache, l2cache, config, statoutput)  # run simulation
-                        virtpagenum = f"{result['virtpagenumber']:6x}"
-                        physpnum    = f"{result['physpagenumber']:4x}"
-                        tlbtagnum = f"{result['virtpagenumber'] >> config['tlbindex']:6x}"
-                        tlbindex  = f"{result['virtpagenumber'] % (1 << config['tlbindex']):3x}"
-                        tlboutput = f"{result['tlbresult']:4s}"
-                        ptoutput  = f"{result['ptresult']:4s}"
-                        dcresult  = f"{result['dcresult']['result']:4s}"
-
-                        
-                        dctagprint = result['dcresult']['tag']      # Get DC tag used by cache
-                        dcindexprint = result['dcresult']['index']  # Get DC index used by cache
-                        
-                    
-                        # Handle L2 results when enabled and present
-                        if l2enabled:
-                            if result.get('l2result'):  # L2 was accessed (on DC miss)
-                                l2result = f"{result['l2result']['result']:4s}"
-                                l2tagprint = result['l2result']['tag']      # Get L2 tag used by cache
-                                l2indexprint = result['l2result']['index']  # Get L2 index used by cache
-                            else:  # L2 not accessed (DC hit), leave L2 fields empty
-                                l2result = ""
-                                l2tagprint = ""
-                                l2indexprint = ""
-
-
-                    else:  # Virtual memory On **WITHOUT** TLB
-                        
-                        result = memorytrans(address, acctype, pagetable, datacache, l2cache, config, statoutput)
-                        virtpagenum = f"{result['virtpagenumber']:6x}"
-                        physpnum    = f"{result['physpagenumber']:4x}"
-                        ptoutput    = f"{result['ptresult']:4s}"
-                        dcresult    = f"{result['dcresult']['result']:4s}"
-                    
-                       
-                        dctagprint = result['dcresult']['tag']      # get  DC tags/indexes from cache function results
-                        dcindexprint = result['dcresult']['index']  
-                        
-                        # Handle L2 results when enabled and present
-                        if l2enabled:
-                            if result.get('l2result'):  # L2 was accessed (on DC miss)
-                                l2result = f"{result['l2result']['result']:4s}"
-                             
-                                l2tagprint = result['l2result']['tag']         # Gt L2 tags/indexes from cache function results
-                                l2indexprint = result['l2result']['index']  
-                                    
-                            else:  # L2 not accessed (DC hit), leave L2 fields empty
-                                l2result = ""
-                                l2tagprint = ""
-                                l2indexprint = ""
-               
-                else:  # ONLY Physical addresses 
-                    
-                    physpnum = f"{pagenumber:4x}"
-                    dc_result = alldatacache(address, acctype, datacache, config, statoutput,  l2cache=l2cache, l2enabled=l2enabled) 
-                    
-                    dcresult = f"{dc_result['result']:4s}"
-                    
-                   
-                    dctagprint = dc_result['tag']      # Gt L2 tags/indexes from cache function results
-                    dcindexprint = dc_result['index'] 
-                
-                    
-
-                    # If DC miss and L2 enabled, access L2 then enforce inclusive policy
-                    if l2enabled and dc_result['result'] == 'miss':
-                        l2_result_obj = l2datacache(address, acctype, l2cache, config, statoutput)
-                        
-                        # Force allocate in DC to maintain inclusive policy
-                        alldatacache(address, acctype, datacache, config, statoutput, allocate=True)
-                        
-                        l2result = f"{l2_result_obj['result']:4s}"
-                        l2tagprint = l2_result_obj['tag']      # Get L2 tags/indexes from cache function results
-                        l2indexprint = l2_result_obj['index']
-                    
-                    else:  # DC hit or L2 disabled - no L2 access
-                        l2result = ""
-                        l2tagprint = ""
-                        l2indexprint = ""
-              
-                # Calculate L2 fields if enabled
-                # if l2enabled:
-                #     l2blocknum = address // (1 << config['l2cacheoffset'])
-                #     l2index    = f"{l2blocknum % (1 << config['l2cacheindex']):3x}"
-                #     l2tag      = f"{l2blocknum // (1 << config['l2cacheindex']):6x}"
-
-                
-                # Handle case where L2 is enabled but we had a DC hit (so L2 wasn't accessed)
-                #if l2enabled and not l2tagprint:  # L2 enabled but no L2 result (DC hit case)
-
-                 #   l2blocknum = address // (1 << config['l2cacheoffset'])
-                 #   l2indexprint = f"{l2blocknum % (1 << config['l2cacheindex']):3x}"
-                 #   l2tagprint = f"{l2blocknum // (1 << config['l2cacheindex']):6x}"
-
+                # Init output field
+            virtpagenum = ""
+            tlbtagnum = ""
+            tlbindex   = ""
+            tlboutput  = ""
             
-                print(f"{address:08x} {virtpagenum:>6} {pageoffset:4x} {tlbtagnum:>6} {tlbindex:>3} {tlboutput:>4} {ptoutput:>4} {physpnum:>4} {dctagprint:>6} {dcindexprint:>3} {dcresult:>4} {l2tagprint:>6} {l2indexprint:>3} {l2result:>4}")
-                # pythons print had a lot of errors, I tried right aligning in some places for visual clarity but I hope that doesn't break the script. 
+            ptoutput   = ""
+            physpnum   = ""
+            
+            l2tag      = ""
+            l2index    = ""
+            l2result   = ""
+            dcresult   = ""
+
+
+            # Init isplay variables for correct tag/index  from cache functions
+            dctagprint= ""     
+            dcindexprint = ""       
+            
+            l2tagprint = ""      
+            l2indexprint = ""    
+
+            # check if virtual memory on
+            if virtmemoryon:
+                if tlbon: # and tlb on
+                    
+                    result = tlbaccess(address, acctype, tlb, pagetable, datacache, l2cache, config, statoutput)  # run simulation
+                    virtpagenum = f"{result['virtpagenumber']:6x}"
+                    physpnum    = f"{result['physpagenumber']:4x}"
+                    tlbtagnum = f"{result['virtpagenumber'] >> config['tlbindex']:6x}"
+                    tlbindex  = f"{result['virtpagenumber'] % (1 << config['tlbindex']):3x}"
+                    tlboutput = f"{result['tlbresult']:4s}"
+                    ptoutput  = f"{result['ptresult']:4s}"
+                    dcresult  = f"{result['dcresult']['result']:4s}"
+
+                    
+                    dctagprint = result['dcresult']['tag']      # Get DC tag used by cache
+                    dcindexprint = result['dcresult']['index']  # Get DC index used by cache
+                    
                 
-                #print(f"{address:08x} {virtpagenum:>6} {pageoffset:>4x} {tlbtagnum:>6} {tlbindex:>3} {tlboutput:>4} {ptoutput:>4} {physpnum:>4} {dctagprint:>6} {dcindexprint:>3} {dcresult:>4} {l2tagprint:>6} {l2indexprint:>3} {l2result:>4}")
-            except Exception as e:
-                print(f"Error processing line '{line}': {e}")
+                    # Handle L2 results when enabled and present
+                    if l2enabled:
+                        if result.get('l2result'):  # L2 was accessed on DC miss
+                            l2result = f"{result['l2result']['result']:4s}"
+                            l2tagprint = result['l2result']['tag']      # Get L2 tag used by cache
+                            l2indexprint = result['l2result']['index']  # Get L2 index used by cache
+                        else:  # L2 not accessed (DC hit), leave L2 fields empty
+                            l2result = ""
+                            l2tagprint = ""
+                            l2indexprint = ""
+
+
+                else:  # Virtual memory On **WITHOUT** TLB
+                    
+                    result = memorytrans(address, acctype, pagetable, datacache, l2cache, config, statoutput)
+                    virtpagenum = f"{result['virtpagenumber']:6x}"
+                    physpnum    = f"{result['physpagenumber']:4x}"
+                    ptoutput    = f"{result['ptresult']:4s}"
+                    dcresult    = f"{result['dcresult']['result']:4s}"
+                
+                    
+                    dctagprint = result['dcresult']['tag']      # get  DC tags/indexes from cache function results
+                    dcindexprint = result['dcresult']['index']  
+                    
+                    # Handle L2 results when enabled and present
+                    if l2enabled:
+                        if result.get('l2result'):  # L2 was accessed on DC miss
+                            l2result = f"{result['l2result']['result']:4s}"
+                            
+                            l2tagprint = result['l2result']['tag']         # Gt L2 tags/indexes from cache function results
+                            l2indexprint = result['l2result']['index']  
+                                
+                        else:  # L2 not accessed DC hit, leave L2 fields empty
+                            l2result = ""
+                            l2tagprint = ""
+                            l2indexprint = ""
+            
+            else:  # ONLY Physical addresses 
+                
+                physpnum = f"{pagenumber:4x}"
+                dc_result = alldatacache(address, acctype, datacache, config, statoutput,  l2cache=l2cache, l2enabled=l2enabled) 
+                
+                dcresult = f"{dc_result['result']:4s}"
+                
+                
+                dctagprint = dc_result['tag']      # Gt L2 tags/indexes from cache function results
+                dcindexprint = dc_result['index'] 
+            
+                
+
+                # If DC miss and L2 enabled, access L2 then enforce inclusive policy
+                if l2enabled and dc_result['result'] == 'miss':
+                    l2_result_obj = l2datacache(address, acctype, l2cache, config, statoutput)
+                    
+                    # Force allocate in DC to maintain inclusive policy
+                    alldatacache(address, acctype, datacache, config, statoutput, allocate=True)
+                    
+                    l2result = f"{l2_result_obj['result']:4s}"
+                    l2tagprint = l2_result_obj['tag']      # Get L2 tags/indexes from cache function results
+                    l2indexprint = l2_result_obj['index']
+                
+                else:  # DC hit or L2 disabled - no L2 access
+                    l2result = ""
+                    l2tagprint = ""
+                    l2indexprint = ""
+            
+        
+            print(f"{address:08x} {virtpagenum:>6} {pageoffset:4x} {tlbtagnum:>6} {tlbindex:>3} {tlboutput:>4} {ptoutput:>4} {physpnum:>4} {dctagprint:>6} {dcindexprint:>3} {dcresult:>4} {l2tagprint:>6} {l2indexprint:>3} {l2result:>4}")
+            
+            #print(f"{address:08x} {virtpagenum:>6} {pageoffset:>4x} {tlbtagnum:>6} {tlbindex:>3} {tlboutput:>4} {ptoutput:>4} {physpnum:>4} {dctagprint:>6} {dcindexprint:>3} {dcresult:>4} {l2tagprint:>6} {l2indexprint:>3} {l2result:>4}")
+        except Exception as e:
+            print(f"Error processing line '{line}': {e}")
 
     # Print stats at the end
     print()
@@ -340,31 +364,26 @@ def memsimulation(config, trace_filename="trace.dat"):
 
 
 
-
-def printstats(statoutput, config):
-    #Print final simulation statistics
+def printstats(statoutput, config):  
+    #Print final sim statistics 
     
     print("Simulation statistics \n")
     
-    # TLB stats if TLB is enabled
-    if config['virtaddress'].lower() == 'y' and config['TLB'].lower() == 'y':  # check config for enabled
-        dtlbtotal = statoutput.get('dtlb_hits', 0) + statoutput.get('dtlb_misses', 0)  # Get total access = hits+misses
-        dtlbratio = statoutput.get('dtlb_hits', 0) / dtlbtotal if dtlbtotal > 0 else 0.0   # hits/total hits = hit ration
-        print(f"dtlb hits        : {statoutput.get('dtlb_hits', 0)}")
-        print(f"dtlb misses      : {statoutput.get('dtlb_misses', 0)}")
-        print(f"dtlb hit ratio   : {dtlbratio:.6f}\n")
+    # TLB stats - always print
+    dtlbtotal = statoutput.get('dtlb_hits', 0) + statoutput.get('dtlb_misses', 0)  # Get total access = hits+misses
+    dtlbratio = statoutput.get('dtlb_hits', 0) / dtlbtotal if dtlbtotal > 0 else 0.0   # hits/total hits = hit ration
+    print(f"dtlb hits        : {statoutput.get('dtlb_hits', 0)}")
+    print(f"dtlb misses      : {statoutput.get('dtlb_misses', 0)}")
+    print(f"dtlb hit ratio   : {dtlbratio:.6f}\n")
     
-    # Page table stats if virtual address is enabled
-    if config['virtaddress'].lower() == 'y':
-        pagetabletotal = statoutput.get('pt_hits', 0) + statoutput.get('pt_faults', 0)  # total page table access = hits+ faults
-        pt_hit_ratio = statoutput.get('pt_hits', 0) / pagetabletotal if pagetabletotal > 0 else 0.0  # ration = hits/ total
-        
-        print(f"pt hits          : {statoutput.get('pt_hits', 0)}")
-        print(f"pt faults        : {statoutput.get('pt_faults', 0)}")
-        print(f"pt hit ratio     : {pt_hit_ratio:.6f}\n")
+    # Page table stats 
+    pagetabletotal = statoutput.get('pt_hits', 0) + statoutput.get('pt_faults', 0)  # total page table access = hits+ faults
+    pt_hit_ratio = statoutput.get('pt_hits', 0) / pagetabletotal if pagetabletotal > 0 else 0.0  # ration = hits/ total
     
-   
-   
+    print(f"pt hits          : {statoutput.get('pt_hits', 0)}")
+    print(f"pt faults        : {statoutput.get('pt_faults', 0)}")
+    print(f"pt hit ratio     : {pt_hit_ratio:.6f}\n")
+    
    
      ## D cach statistics always print
     dcachetotal = statoutput.get('dc_hits', 0) + statoutput.get('dc_misses', 0)  # total datacach hits+mis
@@ -375,12 +394,12 @@ def printstats(statoutput, config):
 
 
     
-    if config['l2setting'].lower() == 'y':      # L2 cach stats  if L2 is enabled
-        l2cachetotal = statoutput.get('l2hits', 0) + statoutput.get('l2misses', 0)   # l2 cache hits+miss = total
-        l2hitratio = statoutput.get('l2hits', 0) / l2cachetotal if l2cachetotal > 0 else 0.0  #l2 ration 
-        print(f"L2 hits          : {statoutput.get('l2hits', 0)}")
-        print(f"L2 misses        : {statoutput.get('l2misses', 0)}")
-        print(f"L2 hit ratio     : {l2hitratio:.6f}\n")
+    # L2 cach stats 
+    l2cachetotal = statoutput.get('l2hits', 0) + statoutput.get('l2misses', 0)   # l2 cache hits+miss = total
+    l2hitratio = statoutput.get('l2hits', 0) / l2cachetotal if l2cachetotal > 0 else 0.0  #l2 ration 
+    print(f"L2 hits          : {statoutput.get('l2hits', 0)}")
+    print(f"L2 misses        : {statoutput.get('l2misses', 0)}")
+    print(f"L2 hit ratio     : {l2hitratio:.6f}\n")
     
     # Access type stats always on
     totalmemaccesses = statoutput.get('allreads', 0) + statoutput.get('allwrites', 0)     # get all access to memory for reads/writes
@@ -392,9 +411,9 @@ def printstats(statoutput, config):
     
     # Memory reference stat
     print(f"main memory refs : {statoutput.get('mainmemrefs', 0)}")
-    if config['virtaddress'].lower() == 'y':
-        print(f"page table refs  : {statoutput.get('page_table_refs', 0)}")
-        print(f"disk refs        : {statoutput.get('disk_refs', 0)}\n")
+    print(f"page table refs  : {statoutput.get('page_table_refs', 0)}")
+    print(f"disk refs        : {statoutput.get('disk_refs', 0)}\n")
+
 
 
 
@@ -449,7 +468,6 @@ def printvars(configurationvariables):
 
 def alldatacache(address, acctype, datacache, config, statoutput, l2cache=None, l2enabled=False, allocate=False):
    
-
    
    #Use a direct-mapped organization (set size = 1) and assume all references are reads
   #      $tracks hits and misses for each memory reference
@@ -880,7 +898,9 @@ def l2datacache(address, acctype, l2cache, config, statoutput):
 
 def pagetablereq(virtpage, pagetable, config, statoutput, tlb=None, datacache=None, l2cache=None):
    
-    # Page table simulation with LRU replacement
+    # Page table simulation for virt to physical page mappings on tlb miss
+    # on hit - return phys page nume and update lru / miss sim page fault creating free physical page or remove lru if mem full
+    # then update tlb/dc & l2 references to miss 
     #Maps virtual page numbers to physical page numbers
     
    
@@ -899,8 +919,6 @@ def pagetablereq(virtpage, pagetable, config, statoutput, tlb=None, datacache=No
         pagetable[virtpage] = physpage 
         
         return {'result': 'hit', 'physpage': physpage}
-    
-
 
 
     # page fault, access disc to read in data  
@@ -930,7 +948,6 @@ def pagetablereq(virtpage, pagetable, config, statoutput, tlb=None, datacache=No
     lruvirtpage = list(pagetable.keys())[0]   # get first key
     evictedphyspage = pagetable[lruvirtpage] # swap
     del pagetable[lruvirtpage] # delete
-
 
 
     # calc address range for evicted physical pages###
@@ -965,12 +982,12 @@ def pagetablereq(virtpage, pagetable, config, statoutput, tlb=None, datacache=No
         for dc_idx in list(datacache.keys()):  # loop through all dc sets in direct mapped caches
             if setsize == 1: 
                 tag, valid, dirty = datacache[dc_idx]  # get cache line
-                if valid:                               # if line is valid
+                if valid:                             
                     blocknumber = (tag << dcindexbits) + dc_idx  # reconstruct block number
                     addr = blocknumber * linebytes        # get phys starting address
 
                     if evicpagestartaddr <= addr < evicpagendaddr:  # if addr in evicted page range
-                        datacache[dc_idx] = (tag, False, dirty)  # invalidate line
+                        datacache[dc_idx] = (tag, False, dirty)      # invalidate line
 
             
             else:        # Case for associative caches
@@ -1042,8 +1059,9 @@ def pagetablereq(virtpage, pagetable, config, statoutput, tlb=None, datacache=No
 
 
 def memorytrans(virtaddress, acctype, pagetable, datacache, l2cache, config, statoutput): ## implement page table (7)
+      # Memory address translation function to handle virtual to physical address mapping
+    #  For virtual address enabled but TLB is off
     
-
     pagesizebytes = config['ptpagesize']     # get each page's size
     
             # split virtual addr into vpn and offset
@@ -1051,7 +1069,7 @@ def memorytrans(virtaddress, acctype, pagetable, datacache, l2cache, config, sta
     pageoffset = virtaddress % pagesizebytes       # offset within that page
     
   
-    ptresult = pagetablereq(virtpagenumber, pagetable, config, statoutput, tlb=None, datacache=datacache, l2cache=l2cache)  # find in page table/TLB is disabled 
+    ptresult = pagetablereq(virtpagenumber, pagetable, config, statoutput, tlb=None, datacache=datacache, l2cache=l2cache)  # find  phys page in page table/TLB is disabled 
     physpagenumber = ptresult['physpage']
     
     
@@ -1069,7 +1087,6 @@ def memorytrans(virtaddress, acctype, pagetable, datacache, l2cache, config, sta
         alldatacache(physaddress, acctype, datacache, config, statoutput, l2cache=l2cache, l2enabled=config['l2setting'].lower() == 'y', allocate=True)
 
 
-
     # Return output
     return {
         'virtaddress': virtaddress,
@@ -1082,12 +1099,16 @@ def memorytrans(virtaddress, acctype, pagetable, datacache, l2cache, config, sta
         'l2result': l2result
     }
 
+
+
 def tlblookup(virtpage, tlb, config, statoutput):
-    ## TLB simulation with LRU replacement - caches page translations
+    ## tlb with lru replacement 
+    # search tlb to find virt to phys page translations & matches / hits
+    # if hit then lru, else +miss 
     
-    tlbsets = config['TLBsets']        # get tlb sets
-    tlbsetsize = config['TLBsetsize']  # get associativity 
-    tlbindexbits = config['tlbindex']  # get index bits
+    tlbsets = config['TLBsets']        # get tlb sets, assoc, index
+    tlbsetsize = config['TLBsetsize']  
+    tlbindexbits = config['tlbindex']  
     
     tlbindex = virtpage % (1 << tlbindexbits)  # calc tlb index 
     tlbtag = virtpage >> tlbindexbits          # calc tlb tag
@@ -1107,7 +1128,7 @@ def tlblookup(virtpage, tlb, config, statoutput):
             
             # lru on hit - move to end = most recently used
             hitentry = tlbset.pop(i)        # remove from current position
-            tlbset.append(hitentry)         # add to end
+            tlbset.append(hitentry)        # add to end
             return {'result': 'hit', 'physpage': physpage}
     
     # if miss
@@ -1118,7 +1139,7 @@ def tlblookup(virtpage, tlb, config, statoutput):
 
 
 def tlbupdate(virtpage, physpage, tlb, config, statoutput):
-    ## Update TLB with new virtual-to-physical mapping after page table access
+    ## Update TLB with new virt to phys mapping after page table access /miss
     
     tlbsets = config['TLBsets']         # get config vars
     tlbsetsize = config['TLBsetsize']   
@@ -1143,8 +1164,9 @@ def tlbupdate(virtpage, physpage, tlb, config, statoutput):
 
 
 def tlbaccess(virtaddress, acctype, tlb, pagetable, datacache, l2cache, config, statoutput):
-    ## Complete memory access with TLB / Page Table / DC // L2
-    ## Reuses almost all Step 7 code just added TLB layer
+    ## Complete memory access with TLB for translation / access ptable / DC // L2
+    # call tlblookup for translation, check miss if miss get pagetablereq update tlb
+    ## reuses almost all step 7 code just added TLB layer
     
     pagesizebytes = config['ptpagesize']        # get page size
     
@@ -1193,11 +1215,25 @@ def tlbaccess(virtaddress, acctype, tlb, pagetable, datacache, l2cache, config, 
 
 
 
+
 if __name__ == "__main__":
-    configfile = "trace copy.config" 
+    configfile = "trace.config"  
     configurationvariables = parse(configfile)
     configurationvariables = calcbits(configurationvariables)
     printvars(configurationvariables)
-
-    memsimulation(configurationvariables, "long_trace.dat")  # This runs the actual simulation
     
+    memsimulation(configurationvariables) 
+
+    # To run in cmd: python assignment1.py < "trace.dat"  replace with whatever trace file needed
+    #python assignment1.py < "trace.dat"
+
+
+#if __name__ == "__main__":
+  #  configfile = "trace copy.config" 
+ #   configurationvariables = parse(configfile)
+ #   configurationvariables = calcbits(configurationvariables)
+#    printvars(configurationvariables)
+#
+#    memsimulation(configurationvariables, "trace.dat") 
+    
+## To run, change the files for the config file / .dat file in any combination. 
