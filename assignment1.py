@@ -174,192 +174,49 @@ def calcbits(configurationvariables):
 
 
 
-#### redid 
-def memsimulation(config):
+def printvars(configurationvariables):
 
-    # Check configuration flags
-    virtmemoryon = config['virtaddress'].lower() == 'y'
-    tlbon = config['TLB'].lower() == 'y'
-    l2enabled = config['l2setting'].lower() == 'y'
 
+    print(f"Data TLB contains {configurationvariables['TLBsets']} sets.")
+    print(f"Each set contains {configurationvariables['TLBsetsize']} entries.")
+    print(f"Number of bits used for the index is {configurationvariables['tlbindex']}. \n")
     
-    datacache = {}  # Init dictionary/  key= cache set index, value= list with tag, validbit, dirtybit
-
-    l2cache = {} 
+    print(f"Number of virtual pages is {configurationvariables['ptvirtpages']}.")
+    print(f"Number of physical pages is {configurationvariables['ptphyspages']}.")
+    print(f"Each page contains {configurationvariables['ptpagesize']} bytes.")
+    print(f"Number of bits used for the page table index is {configurationvariables['ptablebits']}.")
+    print(f"Number of bits used for the page offset is {configurationvariables['poffsetbits']}. \n")
     
-    pagetable = {}  #key = vpn/ value=phys pnum
-    tlb = {}
-    statoutput = {
-        'dc_hits': 0, 'dc_misses': 0, 'l2hits': 0, 'l2misses': 0, # caches
-
-        
-        'dtlb_hits': 0, 'dtlb_misses': 0, 'pt_hits': 0, 'pt_faults': 0, # address translations
-        
-        'allreads': 0, 'allwrites': 0, 'page_table_refs': 0, 'disk_refs': 0, 'mainmemrefs': 0 # acces/mem
-    }
-
-    print("Virtual  Virt.  Page TLB    TLB TLB  PT   Phys        DC  DC          L2  L2")
-    print("Address  Page # Off  Tag    Ind Res. Res. Pg # DC Tag Ind Res. L2 Tag Ind Res.")
-    print("-------- ------ ---- ------ --- ---- ---- ---- ------ --- ---- ------ --- ----")
-
-    # may need to make output screen bigger or else it prints off
-
-
-   
-    pageoffsetbits = config['poffsetbits']   # init
-    dcindexbits = config['dcacheindex'] 
-    dcoffsetbits = config['dcacheoffset']
-
-    # compute sizes in powers of two
-    pagebytes  = 1 << pageoffsetbits   # x bytes per page
-
-    #  These were  incorrect tag calculations
-    # linebytes  = 1 << dcoffsetbits     # bytes per DC line
-    # numsets    = 1 << dcindexbits      # number of DC sets (not bytes)
-
-
-    # Read from stdin 
-    for line in sys.stdin: #grab each trace
-        line = line.strip()
-        if not line:
-            continue
+    print(f"D-cache contains {configurationvariables['Dcachesets']} sets.")
+    print(f"Each set contains {configurationvariables['Dcachesetsize']} entries.")
+    print(f"Each line is {configurationvariables['Dcachelinesize']} bytes.")
     
-        try:
-            # get the addresses 
-            acctype, hexaddr = line.split(':')  # split up r/w and hex address
-            address = int(hexaddr, 16)  # convert to int
+    if configurationvariables['Dwritepolicy'].lower() == 'n':
+        print("The cache uses a write-allocate and write-back policy.")
+    else:
+        print("The cache uses a write-through and no write-allocate policy.")
+    
+    print(f"Number of bits used for the index is {configurationvariables['dcacheindex']}.")
+    print(f"Number of bits used for the offset is {configurationvariables['dcacheoffset']}. \n")
+    
+    print(f"L2-cache contains {configurationvariables['l2sets']} sets.")
+    print(f"Each set contains {configurationvariables['l2setsize']} entries.")
+    print(f"Each line is {configurationvariables['l2linesize']} bytes.")
+    
+    # L2 
+    if configurationvariables['l2writepolicy'].lower() == 'n':
+        print("The cache uses a write-allocate and write-back policy.")
+    else:
+        print("The cache uses a write-through and no write-allocate policy.")
+    
 
-            # Update read/write statistics
-            if acctype == 'R':
-                statoutput['allreads'] += 1
-            else:
-                statoutput['allwrites'] += 1
-
-            pageoffset = address % pagebytes  #get page offset
-            pagenumber = address // pagebytes # get page number can be virtual or physical!!
-
-            #    incorrect tag calc
-            # blocknumber = address // linebytes  # get block num
-            # dc_index = blocknumber % numsets # calc data cache index
-            # dctag = blocknumber // numsets # calc data cache tag
-
-
-                # Init output field
-            virtpagenum = ""
-            tlbtagnum = ""
-            tlbindex   = ""
-            tlboutput  = ""
-            
-            ptoutput   = ""
-            physpnum   = ""
-            
-            l2tag      = ""
-            l2index    = ""
-            l2result   = ""
-            dcresult   = ""
-
-
-            # Init isplay variables for correct tag/index  from cache functions
-            dctagprint= ""     
-            dcindexprint = ""       
-            
-            l2tagprint = ""      
-            l2indexprint = ""    
-
-            # check if virtual memory on
-            if virtmemoryon:
-                if tlbon: # and tlb on
-                    
-                    result = tlbaccess(address, acctype, tlb, pagetable, datacache, l2cache, config, statoutput)  # run simulation
-                    virtpagenum = f"{result['virtpagenumber']:6x}"
-                    physpnum    = f"{result['physpagenumber']:4x}"
-                    tlbtagnum = f"{result['virtpagenumber'] >> config['tlbindex']:6x}"
-                    tlbindex  = f"{result['virtpagenumber'] % (1 << config['tlbindex']):3x}"
-                    tlboutput = f"{result['tlbresult']:4s}"
-                    ptoutput  = f"{result['ptresult']:4s}"
-                    dcresult  = f"{result['dcresult']['result']:4s}"
-
-                    
-                    dctagprint = result['dcresult']['tag']      # Get DC tag used by cache
-                    dcindexprint = result['dcresult']['index']  # Get DC index used by cache
-                    
-                
-                    # Handle L2 results when enabled and present
-                    if l2enabled:
-                        if result.get('l2result'):  # L2 was accessed on DC miss
-                            l2result = f"{result['l2result']['result']:4s}"
-                            l2tagprint = result['l2result']['tag']      # Get L2 tag used by cache
-                            l2indexprint = result['l2result']['index']  # Get L2 index used by cache
-                        else:  # L2 not accessed (DC hit), leave L2 fields empty
-                            l2result = ""
-                            l2tagprint = ""
-                            l2indexprint = ""
-
-
-                else:  # Virtual memory On **WITHOUT** TLB
-                    
-                    result = memorytrans(address, acctype, pagetable, datacache, l2cache, config, statoutput)
-                    virtpagenum = f"{result['virtpagenumber']:6x}"
-                    physpnum    = f"{result['physpagenumber']:4x}"
-                    ptoutput    = f"{result['ptresult']:4s}"
-                    dcresult    = f"{result['dcresult']['result']:4s}"
-                
-                    
-                    dctagprint = result['dcresult']['tag']      # get  DC tags/indexes from cache function results
-                    dcindexprint = result['dcresult']['index']  
-                    
-                    # Handle L2 results when enabled and present
-                    if l2enabled:
-                        if result.get('l2result'):  # L2 was accessed on DC miss
-                            l2result = f"{result['l2result']['result']:4s}"
-                            
-                            l2tagprint = result['l2result']['tag']         # Gt L2 tags/indexes from cache function results
-                            l2indexprint = result['l2result']['index']  
-                                
-                        else:  # L2 not accessed DC hit, leave L2 fields empty
-                            l2result = ""
-                            l2tagprint = ""
-                            l2indexprint = ""
-            
-            else:  # ONLY Physical addresses 
-                
-                physpnum = f"{pagenumber:4x}"
-                dc_result = alldatacache(address, acctype, datacache, config, statoutput,  l2cache=l2cache, l2enabled=l2enabled) 
-                
-                dcresult = f"{dc_result['result']:4s}"
-                
-                
-                dctagprint = dc_result['tag']      # Gt L2 tags/indexes from cache function results
-                dcindexprint = dc_result['index'] 
-            
-                
-
-                # If DC miss and L2 enabled, access L2 then enforce inclusive policy
-                if l2enabled and dc_result['result'] == 'miss':
-                    l2_result_obj = l2datacache(address, acctype, l2cache, config, statoutput)
-                    
-                    # Force allocate in DC to maintain inclusive policy
-                    alldatacache(address, acctype, datacache, config, statoutput, allocate=True)
-                    
-                    l2result = f"{l2_result_obj['result']:4s}"
-                    l2tagprint = l2_result_obj['tag']      # Get L2 tags/indexes from cache function results
-                    l2indexprint = l2_result_obj['index']
-                
-                else:  # DC hit or L2 disabled - no L2 access
-                    l2result = ""
-                    l2tagprint = ""
-                    l2indexprint = ""
-            
-        
-            print(f"{address:08x} {virtpagenum:>6} {pageoffset:4x} {tlbtagnum:>6} {tlbindex:>3} {tlboutput:>4} {ptoutput:>4} {physpnum:>4} {dctagprint:>6} {dcindexprint:>3} {dcresult:>4} {l2tagprint:>6} {l2indexprint:>3} {l2result:>4}")
-            
-            #print(f"{address:08x} {virtpagenum:>6} {pageoffset:>4x} {tlbtagnum:>6} {tlbindex:>3} {tlboutput:>4} {ptoutput:>4} {physpnum:>4} {dctagprint:>6} {dcindexprint:>3} {dcresult:>4} {l2tagprint:>6} {l2indexprint:>3} {l2result:>4}")
-        except Exception as e:
-            print(f"Error processing line '{line}': {e}")
-
-    # Print stats at the end
-    print()
-    printstats(statoutput, config)
+    print(f"Number of bits used for the index is {configurationvariables['l2cacheindex']}.")
+    print(f"Number of bits used for the offset is {configurationvariables['l2cacheoffset']}. \n")
+    
+    if configurationvariables['virtaddress'].lower() == 'y':
+        print("The addresses read in are virtual addresses. \n")
+    else:
+        print("The addresses read in are physical addresses.\n")
 
 
 
@@ -413,55 +270,6 @@ def printstats(statoutput, config):
     print(f"main memory refs : {statoutput.get('mainmemrefs', 0)}")
     print(f"page table refs  : {statoutput.get('page_table_refs', 0)}")
     print(f"disk refs        : {statoutput.get('disk_refs', 0)}\n")
-
-
-
-
-
-def printvars(configurationvariables):
-
-
-    print(f"Data TLB contains {configurationvariables['TLBsets']} sets.")
-    print(f"Each set contains {configurationvariables['TLBsetsize']} entries.")
-    print(f"Number of bits used for the index is {configurationvariables['tlbindex']}. \n")
-    
-    print(f"Number of virtual pages is {configurationvariables['ptvirtpages']}.")
-    print(f"Number of physical pages is {configurationvariables['ptphyspages']}.")
-    print(f"Each page contains {configurationvariables['ptpagesize']} bytes.")
-    print(f"Number of bits used for the page table index is {configurationvariables['ptablebits']}.")
-    print(f"Number of bits used for the page offset is {configurationvariables['poffsetbits']}. \n")
-    
-    print(f"D-cache contains {configurationvariables['Dcachesets']} sets.")
-    print(f"Each set contains {configurationvariables['Dcachesetsize']} entries.")
-    print(f"Each line is {configurationvariables['Dcachelinesize']} bytes.")
-    
-    if configurationvariables['Dwritepolicy'].lower() == 'n':
-        print("The cache uses a write-allocate and write-back policy.")
-    else:
-        print("The cache uses a write-through and no write-allocate policy.")
-    
-    print(f"Number of bits used for the index is {configurationvariables['dcacheindex']}.")
-    print(f"Number of bits used for the offset is {configurationvariables['dcacheoffset']}. \n")
-    
-    print(f"L2-cache contains {configurationvariables['l2sets']} sets.")
-    print(f"Each set contains {configurationvariables['l2setsize']} entries.")
-    print(f"Each line is {configurationvariables['l2linesize']} bytes.")
-    
-    # L2 
-    if configurationvariables['l2writepolicy'].lower() == 'n':
-        print("The cache uses a write-allocate and write-back policy.")
-    else:
-        print("The cache uses a write-through and no write-allocate policy.")
-    
-
-    print(f"Number of bits used for the index is {configurationvariables['l2cacheindex']}.")
-    print(f"Number of bits used for the offset is {configurationvariables['l2cacheoffset']}. \n")
-    
-    if configurationvariables['virtaddress'].lower() == 'y':
-        print("The addresses read in are virtual addresses. \n")
-    else:
-        print("The addresses read in are physical addresses.\n")
-
 
 
 
@@ -1057,50 +865,6 @@ def pagetablereq(virtpage, pagetable, config, statoutput, tlb=None, datacache=No
 
 
 
-
-def memorytrans(virtaddress, acctype, pagetable, datacache, l2cache, config, statoutput): ## implement page table (7)
-      # Memory address translation function to handle virtual to physical address mapping
-    #  For virtual address enabled but TLB is off
-    
-    pagesizebytes = config['ptpagesize']     # get each page's size
-    
-            # split virtual addr into vpn and offset
-    virtpagenumber = virtaddress // pagesizebytes  # which virtual page
-    pageoffset = virtaddress % pagesizebytes       # offset within that page
-    
-  
-    ptresult = pagetablereq(virtpagenumber, pagetable, config, statoutput, tlb=None, datacache=datacache, l2cache=l2cache)  # find  phys page in page table/TLB is disabled 
-    physpagenumber = ptresult['physpage']
-    
-    
-    physaddress = (physpagenumber * pagesizebytes) + pageoffset  # get physical address using same phys page & offset
-    
-    dcresult = alldatacache(physaddress, acctype, datacache, config, statoutput, l2cache=l2cache, l2enabled=config['l2setting'].lower() == 'y')
-    # check cache hierarchy w/ phys address
-
-    
-     # access L2 cache if DC miss
-    l2result = None
-    if dcresult['result'] == 'miss':
-        l2result = l2datacache(physaddress, acctype, l2cache, config, statoutput)
-        # allocate in DC to maintain inclusive policy
-        alldatacache(physaddress, acctype, datacache, config, statoutput, l2cache=l2cache, l2enabled=config['l2setting'].lower() == 'y', allocate=True)
-
-
-    # Return output
-    return {
-        'virtaddress': virtaddress,
-        'virtpagenumber': virtpagenumber,
-        'pageoffset': pageoffset,
-        'ptresult': ptresult['result'],
-        'physpagenumber': physpagenumber,
-        'physaddress': physaddress,
-        'dcresult': dcresult,
-        'l2result': l2result
-    }
-
-
-
 def tlblookup(virtpage, tlb, config, statoutput):
     ## tlb with lru replacement 
     # search tlb to find virt to phys page translations & matches / hits
@@ -1163,6 +927,48 @@ def tlbupdate(virtpage, physpage, tlb, config, statoutput):
 
 
 
+def memorytrans(virtaddress, acctype, pagetable, datacache, l2cache, config, statoutput): ## implement page table (7)
+      # Memory address translation function to handle virtual to physical address mapping
+    #  For virtual address enabled but TLB is off
+    
+    pagesizebytes = config['ptpagesize']     # get each page's size
+    
+            # split virtual addr into vpn and offset
+    virtpagenumber = virtaddress // pagesizebytes  # which virtual page
+    pageoffset = virtaddress % pagesizebytes       # offset within that page
+    
+  
+    ptresult = pagetablereq(virtpagenumber, pagetable, config, statoutput, tlb=None, datacache=datacache, l2cache=l2cache)  # find  phys page in page table/TLB is disabled 
+    physpagenumber = ptresult['physpage']
+    
+    
+    physaddress = (physpagenumber * pagesizebytes) + pageoffset  # get physical address using same phys page & offset
+    
+    dcresult = alldatacache(physaddress, acctype, datacache, config, statoutput, l2cache=l2cache, l2enabled=config['l2setting'].lower() == 'y')
+    # check cache hierarchy w/ phys address
+
+    
+     # access L2 cache if DC miss
+    l2result = None
+    if dcresult['result'] == 'miss':
+        l2result = l2datacache(physaddress, acctype, l2cache, config, statoutput)
+        # allocate in DC to maintain inclusive policy
+        alldatacache(physaddress, acctype, datacache, config, statoutput, l2cache=l2cache, l2enabled=config['l2setting'].lower() == 'y', allocate=True)
+
+
+    # Return output
+    return {
+        'virtaddress': virtaddress,
+        'virtpagenumber': virtpagenumber,
+        'pageoffset': pageoffset,
+        'ptresult': ptresult['result'],
+        'physpagenumber': physpagenumber,
+        'physaddress': physaddress,
+        'dcresult': dcresult,
+        'l2result': l2result
+    }
+
+
 def tlbaccess(virtaddress, acctype, tlb, pagetable, datacache, l2cache, config, statoutput):
     ## Complete memory access with TLB for translation / access ptable / DC // L2
     # call tlblookup for translation, check miss if miss get pagetablereq update tlb
@@ -1212,6 +1018,195 @@ def tlbaccess(virtaddress, acctype, tlb, pagetable, datacache, l2cache, config, 
         'dcresult': dcresult,
         'l2result': l2result
     }
+
+
+
+#### redid 
+def memsimulation(config):
+
+    # Check configuration flags
+    virtmemoryon = config['virtaddress'].lower() == 'y'
+    tlbon = config['TLB'].lower() == 'y'
+    l2enabled = config['l2setting'].lower() == 'y'
+
+    
+    datacache = {}  # Init dictionary/  key= cache set index, value= list with tag, validbit, dirtybit
+
+    l2cache = {} 
+    
+    pagetable = {}  #key = vpn/ value=phys pnum
+    tlb = {}
+    statoutput = {
+        'dc_hits': 0, 'dc_misses': 0, 'l2hits': 0, 'l2misses': 0, # caches
+
+        
+        'dtlb_hits': 0, 'dtlb_misses': 0, 'pt_hits': 0, 'pt_faults': 0, # address translations
+        
+        'allreads': 0, 'allwrites': 0, 'page_table_refs': 0, 'disk_refs': 0, 'mainmemrefs': 0 # acces/mem
+    }
+
+    print("Virtual  Virt.  Page TLB    TLB TLB  PT   Phys        DC  DC          L2  L2")
+    print("Address  Page # Off  Tag    Ind Res. Res. Pg # DC Tag Ind Res. L2 Tag Ind Res.")
+    print("-------- ------ ---- ------ --- ---- ---- ---- ------ --- ---- ------ --- ----")
+
+    # may need to make output screen bigger or else it prints off
+
+
+   
+    pageoffsetbits = config['poffsetbits']   # init
+    dcindexbits = config['dcacheindex'] 
+    dcoffsetbits = config['dcacheoffset']
+
+    # compute sizes in powers of two
+    pagebytes  = 1 << pageoffsetbits   # x bytes per page
+
+    #  These were  incorrect tag calculations
+    # linebytes  = 1 << dcoffsetbits     # bytes per DC line
+    # numsets    = 1 << dcindexbits      # number of DC sets (not bytes)
+
+
+    # Read from stdin 
+    for line in sys.stdin: #grab each trace
+        line = line.strip()
+        if not line:
+            continue
+    
+        try:
+            # get the addresses 
+            acctype, hexaddr = line.split(':')  # split up r/w and hex address
+            address = int(hexaddr, 16)  # convert to int
+
+            # Update read/write statistics
+            if acctype == 'R':
+                statoutput['allreads'] += 1
+            else:
+                statoutput['allwrites'] += 1
+
+            pageoffset = address % pagebytes  #get page offset
+            pagenumber = address // pagebytes # get page number can be virtual or physical!!
+
+            #    incorrect tag calc
+            # blocknumber = address // linebytes  # get block num
+            # dc_index = blocknumber % numsets # calc data cache index
+            # dctag = blocknumber // numsets # calc data cache tag
+
+
+                # Init output field
+            virtpagenum = ""
+            tlbtagnum = ""
+            tlbindex   = ""
+            tlboutput  = ""
+            
+            ptoutput   = ""
+            physpnum   = ""
+            
+            l2tag      = ""
+            l2index    = ""
+            l2result   = ""
+            dcresult   = ""
+
+
+            # Init isplay variables for correct tag/index  from cache functions
+            dctagprint= ""     
+            dcindexprint = ""       
+            
+            l2tagprint = ""      
+            l2indexprint = ""    
+
+            # check if virtual memory on
+            if virtmemoryon:
+                if tlbon: # and tlb on
+                    
+                    result = tlbaccess(address, acctype, tlb, pagetable, datacache, l2cache, config, statoutput)  # run simulation
+                    virtpagenum = f"{result['virtpagenumber']:6x}"
+                    physpnum    = f"{result['physpagenumber']:4x}"
+                    tlbtagnum = f"{result['virtpagenumber'] >> config['tlbindex']:6x}"
+                    tlbindex  = f"{result['virtpagenumber'] % (1 << config['tlbindex']):3x}"
+                    tlboutput = f"{result['tlbresult']:4s}"
+                    ptoutput  = f"{result['ptresult']:4s}"
+                    dcresult  = f"{result['dcresult']['result']:4s}"
+
+                    
+                    dctagprint = result['dcresult']['tag']      # Get DC tag used by cache
+                    dcindexprint = result['dcresult']['index']  # Get DC index used by cache
+                    
+                
+                    # Handle L2 results when enabled and present
+                    if l2enabled:
+                        if result.get('l2result'):  # L2 was accessed on DC miss
+                            l2result = f"{result['l2result']['result']:4s}"
+                            l2tagprint = result['l2result']['tag']      # Get L2 tag used by cache
+                            l2indexprint = result['l2result']['index']  # Get L2 index used by cache
+                        else:  # L2 not accessed (DC hit), leave L2 fields empty
+                            l2result = ""
+                            l2tagprint = ""
+                            l2indexprint = ""
+
+
+                else:  # Virtual memory On **WITHOUT** TLB
+                    
+                    result = memorytrans(address, acctype, pagetable, datacache, l2cache, config, statoutput)
+                    virtpagenum = f"{result['virtpagenumber']:6x}"
+                    physpnum    = f"{result['physpagenumber']:4x}"
+                    ptoutput    = f"{result['ptresult']:4s}"
+                    dcresult    = f"{result['dcresult']['result']:4s}"
+                
+                    
+                    dctagprint = result['dcresult']['tag']      # get  DC tags/indexes from cache function results
+                    dcindexprint = result['dcresult']['index']  
+                    
+                    # Handle L2 results when enabled and present
+                    if l2enabled:
+                        if result.get('l2result'):  # L2 was accessed on DC miss
+                            l2result = f"{result['l2result']['result']:4s}"
+                            
+                            l2tagprint = result['l2result']['tag']         # Gt L2 tags/indexes from cache function results
+                            l2indexprint = result['l2result']['index']  
+                                
+                        else:  # L2 not accessed DC hit, leave L2 fields empty
+                            l2result = ""
+                            l2tagprint = ""
+                            l2indexprint = ""
+            
+            else:  # ONLY Physical addresses 
+                
+                physpnum = f"{pagenumber:4x}"
+                dc_result = alldatacache(address, acctype, datacache, config, statoutput,  l2cache=l2cache, l2enabled=l2enabled) 
+                
+                dcresult = f"{dc_result['result']:4s}"
+                
+                
+                dctagprint = dc_result['tag']      # Gt L2 tags/indexes from cache function results
+                dcindexprint = dc_result['index'] 
+            
+                
+
+                # If DC miss and L2 enabled, access L2 then enforce inclusive policy
+                if l2enabled and dc_result['result'] == 'miss':
+                    l2_result_obj = l2datacache(address, acctype, l2cache, config, statoutput)
+                    
+                    # Force allocate in DC to maintain inclusive policy
+                    alldatacache(address, acctype, datacache, config, statoutput, allocate=True)
+                    
+                    l2result = f"{l2_result_obj['result']:4s}"
+                    l2tagprint = l2_result_obj['tag']      # Get L2 tags/indexes from cache function results
+                    l2indexprint = l2_result_obj['index']
+                
+                else:  # DC hit or L2 disabled - no L2 access
+                    l2result = ""
+                    l2tagprint = ""
+                    l2indexprint = ""
+            
+        
+            print(f"{address:08x} {virtpagenum:>6} {pageoffset:4x} {tlbtagnum:>6} {tlbindex:>3} {tlboutput:>4} {ptoutput:>4} {physpnum:>4} {dctagprint:>6} {dcindexprint:>3} {dcresult:>4} {l2tagprint:>6} {l2indexprint:>3} {l2result:>4}")
+            
+            #print(f"{address:08x} {virtpagenum:>6} {pageoffset:>4x} {tlbtagnum:>6} {tlbindex:>3} {tlboutput:>4} {ptoutput:>4} {physpnum:>4} {dctagprint:>6} {dcindexprint:>3} {dcresult:>4} {l2tagprint:>6} {l2indexprint:>3} {l2result:>4}")
+        except Exception as e:
+            print(f"Error processing line '{line}': {e}")
+
+    # Print stats at the end
+    print()
+    printstats(statoutput, config)
 
 
 
